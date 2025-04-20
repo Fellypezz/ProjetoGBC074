@@ -4,62 +4,75 @@ import io.grpc.stub.StreamObserver;
 import org.eclipse.paho.client.mqttv3.*;
 import org.json.JSONObject;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class KVSService extends KVSGrpc.KVSImplBase {
-    private final Map<String, TreeMap<Integer, String>> banco = new ConcurrentHashMap<>();
-    private final Map<String, Integer> versoes = new ConcurrentHashMap<>();
-    private final MqttClient mqttClient;
 
-    public KVSService() throws MqttException {
-        mqttClient = new MqttClient("tcp://localhost:1883", MqttClient.generateClientId());
-        mqttClient.connect();
-        mqttClient.subscribe("atualizacao", this::handleMQTTMessage);
+    private final MqttClient mqttClient;
+    private static final String BROKER_URL = "tcp://localhost:1883";
+    private static final String TOPIC = "kvs-updates";
+
+    // Estrutura de armazenamento chave-valor com versão
+    private final Map<String, TreeMap<Integer, String>> banco = new ConcurrentHashMap<>();
+
+    public KVSService() {
+        try {
+            mqttClient = new MqttClient(BROKER_URL, MqttClient.generateClientId());
+            mqttClient.setCallback(new MqttCallback() {
+                @Override
+                public void connectionLost(Throwable cause) {}
+
+                @Override
+                public void messageArrived(String topic, MqttMessage message) {
+                    handleMQTTMessage(topic, message);
+                }
+
+                @Override
+                public void deliveryComplete(IMqttDeliveryToken token) {}
+            });
+            mqttClient.connect();
+            mqttClient.subscribe(TOPIC);
+        } catch (MqttException e) {
+            throw new RuntimeException("Erro ao iniciar MQTT", e);
+        }
     }
 
     private void handleMQTTMessage(String topic, MqttMessage message) {
-        try {
-            JSONObject json = new JSONObject(new String(message.getPayload(), StandardCharsets.UTF_8));
-            String chave = json.getString("chave");
-            int versao = json.getInt("versao");
-            String valor = json.getString("valor");
+        String payload = new String(message.getPayload());
+        JSONObject json = new JSONObject(payload);
+        String chave = json.getString("chave");
+        String valor = json.getString("valor");
+        int versao = json.getInt("versao");
 
-            banco.putIfAbsent(chave, new TreeMap<>());
-            banco.get(chave).put(versao, valor);
-            versoes.put(chave, versao);
-        } catch (Exception e) {
+        banco.computeIfAbsent(chave, k -> new TreeMap<>()).put(versao, valor);
+    }
+
+    private void publicarAtualizacao(String chave, String valor, int versao) {
+        JSONObject json = new JSONObject();
+        json.put("chave", chave);
+        json.put("valor", valor);
+        json.put("versao", versao);
+        try {
+            mqttClient.publish(TOPIC, new MqttMessage(json.toString().getBytes()));
+        } catch (MqttException e) {
             e.printStackTrace();
         }
     }
 
-    private void publicarAtualizacao(JSONObject json) {
-        try {
-            MqttMessage mqttMessage = new MqttMessage(json.toString().getBytes(StandardCharsets.UTF_8));
-            mqttClient.publish("atualizacao", mqttMessage);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+    private int getProximaVersao(String chave) {
+        TreeMap<Integer, String> versoes = banco.get(chave);
+        return (versoes == null || versoes.isEmpty()) ? 1 : versoes.lastKey() + 1;
     }
 
     @Override
     public void insere(ChaveValor request, StreamObserver<Versao> responseObserver) {
         String chave = request.getChave();
         String valor = request.getValor();
+        int versao = getProximaVersao(chave);
 
-        int versao = versoes.getOrDefault(chave, 0) + 1;
-        versoes.put(chave, versao);
-
-        banco.putIfAbsent(chave, new TreeMap<>());
-        banco.get(chave).put(versao, valor);
-
-        JSONObject json = new JSONObject();
-        json.put("chave", chave);
-        json.put("versao", versao);
-        json.put("valor", valor);
-        publicarAtualizacao(json);
+        banco.computeIfAbsent(chave, k -> new TreeMap<>()).put(versao, valor);
+        publicarAtualizacao(chave, valor, versao);
 
         Versao resposta = Versao.newBuilder().setVersao(versao).build();
         responseObserver.onNext(resposta);
@@ -71,29 +84,24 @@ public class KVSService extends KVSGrpc.KVSImplBase {
         String chave = request.getChave();
         int versao = request.getVersao();
 
-        TreeMap<Integer, String> historico = banco.get(chave);
-        if (historico != null) {
-            Map.Entry<Integer, String> entrada;
-            if (versao == -1) {
-                entrada = historico.lastEntry();
-            } else {
-                entrada = historico.floorEntry(versao);
-            }
+        TreeMap<Integer, String> versoes = banco.get(chave);
+        Tupla.Builder tupla = Tupla.newBuilder().setChave("").setValor("").setVersao(0);
 
-            if (entrada != null) {
-                Tupla resposta = Tupla.newBuilder()
-                        .setChave(chave)
-                        .setValor(entrada.getValue())
-                        .setVersao(entrada.getKey())
-                        .build();
-                responseObserver.onNext(resposta);
-            } else {
-                responseObserver.onNext(Tupla.newBuilder().build());
+        if (versoes != null && !versoes.isEmpty()) {
+            if (versao == -1) {
+                versao = versoes.lastKey();
+            } else if (!versoes.containsKey(versao)) {
+                Optional<Map.Entry<Integer, String>> menor = versoes.floorEntry(versao) != null ?
+                        Optional.of(versoes.floorEntry(versao)) : Optional.empty();
+                if (menor.isPresent()) versao = menor.get().getKey();
+                else versao = -1;
             }
-        } else {
-            responseObserver.onNext(Tupla.newBuilder().build());
+            if (versao > 0 && versoes.containsKey(versao)) {
+                tupla.setChave(chave).setValor(versoes.get(versao)).setVersao(versao);
+            }
         }
 
+        responseObserver.onNext(tupla.build());
         responseObserver.onCompleted();
     }
 
@@ -102,173 +110,45 @@ public class KVSService extends KVSGrpc.KVSImplBase {
         String chave = request.getChave();
         int versao = request.getVersao();
 
-        TreeMap<Integer, String> historico = banco.get(chave);
-        int respostaVersao = -1;
+        TreeMap<Integer, String> versoes = banco.get(chave);
+        int retorno = -1;
 
-        if (historico != null) {
+        if (versoes != null && !versoes.isEmpty()) {
             if (versao == -1) {
-                historico.clear();
-                versoes.remove(chave);
-                respostaVersao = 0;
-            } else {
-                if (historico.containsKey(versao)) {
-                    historico.remove(versao);
-                    respostaVersao = versao;
-                    if (versao == versoes.get(chave)) {
-                        versoes.put(chave, historico.isEmpty() ? 0 : historico.lastKey());
-                    }
-                }
+                retorno = versoes.lastKey();
+                versoes.remove(retorno);
+            } else if (versoes.containsKey(versao)) {
+                versoes.remove(versao);
+                retorno = versao;
             }
         }
 
-        Versao resposta = Versao.newBuilder().setVersao(respostaVersao).build();
+        Versao resposta = Versao.newBuilder().setVersao(retorno).build();
         responseObserver.onNext(resposta);
         responseObserver.onCompleted();
-    }
-
-    @Override
-    public StreamObserver<ChaveValor> insereVarias(StreamObserver<Versao> responseObserver) {
-        return new StreamObserver<>() {
-            @Override
-            public void onNext(ChaveValor request) {
-                String chave = request.getChave();
-                String valor = request.getValor();
-                int versao = versoes.getOrDefault(chave, 0) + 1;
-                versoes.put(chave, versao);
-
-                banco.putIfAbsent(chave, new TreeMap<>());
-                banco.get(chave).put(versao, valor);
-
-                JSONObject json = new JSONObject();
-                json.put("chave", chave);
-                json.put("versao", versao);
-                json.put("valor", valor);
-                publicarAtualizacao(json);
-
-                responseObserver.onNext(Versao.newBuilder().setVersao(versao).build());
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                responseObserver.onError(t);
-            }
-
-            @Override
-            public void onCompleted() {
-                responseObserver.onCompleted();
-            }
-        };
-    }
-
-    @Override
-    public StreamObserver<ChaveVersao> consultaVarias(StreamObserver<Tupla> responseObserver) {
-        return new StreamObserver<>() {
-            @Override
-            public void onNext(ChaveVersao request) {
-                String chaveReq = request.getChave();
-                int versaoReq = request.getVersao();
-
-                TreeMap<Integer, String> historico = banco.get(chaveReq);
-                if (historico != null) {
-                    Map.Entry<Integer, String> entrada;
-                    if (versaoReq == -1) {
-                        entrada = historico.lastEntry();
-                    } else {
-                        entrada = historico.floorEntry(versaoReq);
-                    }
-
-                    if (entrada != null) {
-                        Tupla resposta = Tupla.newBuilder()
-                                .setChave(chaveReq)
-                                .setValor(entrada.getValue())
-                                .setVersao(entrada.getKey())
-                                .build();
-                        responseObserver.onNext(resposta);
-                    } else {
-                        responseObserver.onNext(Tupla.newBuilder().build());
-                    }
-                } else {
-                    responseObserver.onNext(Tupla.newBuilder().build());
-                }
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                responseObserver.onError(t);
-            }
-
-            @Override
-            public void onCompleted() {
-                responseObserver.onCompleted();
-            }
-        };
-    }
-
-    @Override
-    public StreamObserver<ChaveVersao> removeVarias(StreamObserver<Versao> responseObserver) {
-        return new StreamObserver<>() {
-            @Override
-            public void onNext(ChaveVersao request) {
-                String chave = request.getChave();
-                int versao = request.getVersao();
-
-                TreeMap<Integer, String> historico = banco.get(chave);
-                int respostaVersao = -1;
-
-                if (historico != null) {
-                    if (versao == -1) {
-                        historico.clear();
-                        versoes.remove(chave);
-                        respostaVersao = 0;
-                    } else {
-                        if (historico.containsKey(versao)) {
-                            historico.remove(versao);
-                            respostaVersao = versao;
-                            if (versao == versoes.get(chave)) {
-                                versoes.put(chave, historico.isEmpty() ? 0 : historico.lastKey());
-                            }
-                        }
-                    }
-                }
-
-                Versao resposta = Versao.newBuilder().setVersao(respostaVersao).build();
-                responseObserver.onNext(resposta);
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                responseObserver.onError(t);
-            }
-
-            @Override
-            public void onCompleted() {
-                responseObserver.onCompleted();
-            }
-        };
     }
 
     @Override
     public void snapshot(Versao request, StreamObserver<Tupla> responseObserver) {
         int versaoLimite = request.getVersao();
 
-        for (Map.Entry<String, TreeMap<Integer, String>> entrada : banco.entrySet()) {
-            String chave = entrada.getKey();
-            TreeMap<Integer, String> historico = entrada.getValue();
+        for (Map.Entry<String, TreeMap<Integer, String>> entry : banco.entrySet()) {
+            String chave = entry.getKey();
+            TreeMap<Integer, String> versoes = entry.getValue();
 
-            Map.Entry<Integer, String> tupla = (versaoLimite == 0)
-                    ? historico.lastEntry()
-                    : historico.floorEntry(versaoLimite);
+            Map.Entry<Integer, String> escolhida = (versaoLimite == 0)
+                    ? versoes.lastEntry()
+                    : versoes.floorEntry(versaoLimite);
 
-            if (tupla != null) {
-                Tupla resposta = Tupla.newBuilder()
+            if (escolhida != null) {
+                Tupla tupla = Tupla.newBuilder()
                         .setChave(chave)
-                        .setValor(tupla.getValue())
-                        .setVersao(tupla.getKey())
+                        .setValor(escolhida.getValue())
+                        .setVersao(escolhida.getKey())
                         .build();
-                responseObserver.onNext(resposta);
+                responseObserver.onNext(tupla);
             }
         }
-
         responseObserver.onCompleted();
     }
 }
