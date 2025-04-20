@@ -1,6 +1,5 @@
 package br.ufu.facom.gbc074.kvs;
 
-import org.eclipse.paho.client.mqttv3.MqttException;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import java.io.IOException;
@@ -21,7 +20,7 @@ public class Main {
 
         try {
             Server server = ServerBuilder.forPort(porta)
-                    .addService(new KVSService())
+                    .addService(new KVSService()) // Certifique-se que o construtor KVSService NÃO tem throws MqttException
                     .build();
 
             server.start();
@@ -34,11 +33,8 @@ public class Main {
             }));
 
             server.awaitTermination();
-        } catch (MqttException e) {
-            LOG.severe("Erro ao iniciar o serviço MQTT: " + e.getMessage());
-            e.printStackTrace();
         } catch (Exception e) {
-            LOG.severe("Erro inesperado: " + e.getMessage());
+            LOG.severe("Erro inesperado ao iniciar o servidor: " + e.getMessage());
             e.printStackTrace();
         }
     }
