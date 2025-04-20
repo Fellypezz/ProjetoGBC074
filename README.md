@@ -7,9 +7,6 @@ Este projeto implementa um sistema de armazenamento chave-valor distribuído com
 
 ## 🔧 Requisitos Atendidos
 
-### ✅ Grupo de 2 alunos
-> A entrega é feita por dois integrantes, conforme solicitado no edital.
-
 ### ✅ gRPC entre cliente e servidor
 > A comunicação entre cliente e servidor utiliza `gRPC` com definição via `.proto`.
 
@@ -128,6 +125,3 @@ Map<String, AtomicInteger> versionTracker;
 - O comportamento de versões, remoção e snapshot está conforme as especificações.
 - Todos os testes foram feitos no IntelliJ e no Ubuntu 22.04.
 
----
-
-Caso queira testar em outros ambientes ou usar Maven/Gradle, podemos adaptar o projeto facilmente.
