@@ -1,4 +1,3 @@
-
 # Projeto: Sistema Distribuído de Armazenamento Chave-Valor (KVS)
 
 Este projeto implementa um sistema de armazenamento chave-valor distribuído com comunicação entre clientes e servidores via **gRPC**, e sincronização entre servidores via **MQTT** (Mosquitto), conforme as especificações do trabalho prático.
@@ -47,37 +46,43 @@ Map<String, AtomicInteger> versionTracker;
 
 ---
 
-## 🛠 Instruções para Compilar e Executar (Linux)
+## 🛠 Instruções para Compilar e Executar no Linux (via Maven)
 
-### 1. Instalar dependências:
+### 1. Instale os pré-requisitos
 ```bash
 sudo apt update
-sudo apt install openjdk-17-jdk mosquitto unzip
+sudo apt install openjdk-17-jdk mosquitto maven unzip
 ```
 
-### 2. Dar permissão aos scripts:
+### 2. Inicie o Mosquitto
 ```bash
-chmod +x compile.sh server.sh
+mosquitto -d
+```
+> Ou apenas `mosquitto` se quiser rodar em primeiro plano.
+
+### 3. Compile o projeto
+```bash
+mvn clean compile
 ```
 
-### 3. Compilar:
+### 4. Execute o servidor (exemplo com porta 50051)
 ```bash
-./compile.sh
+mvn exec:java -Dexec.mainClass="br.ufu.facom.gbc074.kvs.Main" -Dexec.args="50051"
 ```
 
-### 4. Executar o servidor:
+### 5. Execute um segundo servidor (exemplo com porta 50052)
 ```bash
-./server.sh 50051
+mvn exec:java -Dexec.mainClass="br.ufu.facom.gbc074.kvs.Main" -Dexec.args="50052"
 ```
 
-### 5. Executar cliente:
+### 6. Execute o cliente (modo interativo)
 ```bash
-java -cp "bin:lib/*" br.ufu.facom.gbc074.kvs.KVSClient
+mvn exec:java -Dexec.mainClass="br.ufu.facom.gbc074.kvs.KVSClient"
 ```
 
-### 6. Ou executar a demo:
+### 7. Execute a demonstração automática
 ```bash
-java -cp "bin:lib/*" br.ufu.facom.gbc074.kvs.KVSDemo
+mvn exec:java -Dexec.mainClass="br.ufu.facom.gbc074.kvs.KVSDemo"
 ```
 
 ---
@@ -123,5 +128,5 @@ Map<String, AtomicInteger> versionTracker;
 
 - O sistema está completamente funcional para uso local e com vários servidores interligados via MQTT.
 - O comportamento de versões, remoção e snapshot está conforme as especificações.
-- Todos os testes foram feitos no IntelliJ e no Ubuntu 22.04.
+- Todos os testes foram feitos no IntelliJ e no Ubuntu 22.04 com Maven.
 
