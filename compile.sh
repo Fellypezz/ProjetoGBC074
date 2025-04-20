@@ -1,14 +1,21 @@
 #!/bin/bash
 
-# Diretório base do projeto
-SRC_DIR="src/main/java"
-BIN_DIR="bin"
+echo "🔧 Iniciando compilação do projeto..."
 
-# Cria pasta de binários
-mkdir -p $BIN_DIR
+# Verifica se Maven está instalado
+if ! command -v mvn &> /dev/null
+then
+    echo "❌ Maven não encontrado. Instale com: sudo apt install maven"
+    exit 1
+fi
 
-# Compila todos os arquivos Java
-echo "Compilando arquivos Java..."
-javac -d $BIN_DIR -cp "lib/*" $(find $SRC_DIR -name "*.java")
+# Limpa e compila o projeto
+mvn clean compile
 
-echo "Compilação concluída."
+# Verifica se a compilação foi bem-sucedida
+if [ $? -eq 0 ]; then
+    echo "✅ Compilação concluída com sucesso!"
+else
+    echo "❌ Erro durante a compilação."
+    exit 1
+fi
