@@ -6,5 +6,4 @@ if [ -z "$PORTA" ]; then
   exit 1
 fi
 
-# Executa o servidor com a porta definida
-java -cp "bin:lib/*" br.ufu.facom.gbc074.kvs.Main $PORTA
+mvn exec:java -Dexec.mainClass="br.ufu.facom.gbc074.kvs.Main" -Dexec.args="$PORTA"
