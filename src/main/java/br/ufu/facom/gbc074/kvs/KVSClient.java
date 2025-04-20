@@ -1,12 +1,19 @@
-
 package br.ufu.facom.gbc074.kvs;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class KVSClient {
+
+    private final KVSGrpc.KVSBlockingStub stub;
+
+    public KVSClient(ManagedChannel channel) {
+        this.stub = KVSGrpc.newBlockingStub(channel);
+    }
 
     public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
@@ -16,7 +23,7 @@ public class KVSClient {
                 .usePlaintext()
                 .build();
 
-        KVSGrpc.KVSBlockingStub stub = KVSGrpc.newBlockingStub(channel);
+        KVSClient client = new KVSClient(channel);
 
         while (true) {
             System.out.println("\nOperações disponíveis:");
@@ -32,22 +39,47 @@ public class KVSClient {
 
             switch (opcao) {
                 case 1:
-                    insert(stub, sc);
+                    System.out.print("Chave: ");
+                    String chave1 = sc.nextLine();
+                    System.out.print("Valor: ");
+                    String valor = sc.nextLine();
+                    int versao = client.insertAndGetVersion(chave1, valor);
+                    System.out.println("Inserido com versão: " + versao);
                     break;
                 case 2:
-                    consultaVersaoEspecifica(stub, sc);
+                    System.out.print("Chave: ");
+                    String chave2 = sc.nextLine();
+                    System.out.print("Versão: ");
+                    int versaoConsulta = Integer.parseInt(sc.nextLine());
+                    System.out.println("Consulta: " + client.queryReturn(chave2, versaoConsulta));
                     break;
                 case 3:
-                    consultaUltimaVersao(stub, sc);
+                    System.out.print("Chave: ");
+                    String chave3 = sc.nextLine();
+                    System.out.println("Consulta: " + client.queryLatestReturn(chave3));
                     break;
                 case 4:
-                    removeVersaoEspecifica(stub, sc);
+                    System.out.print("Chave: ");
+                    String chave4 = sc.nextLine();
+                    System.out.print("Versão: ");
+                    int versaoRemover = Integer.parseInt(sc.nextLine());
+                    int retornoRemover = client.removeAndGetVersion(chave4, versaoRemover);
+                    System.out.println("Remoção: versão retornada = " + retornoRemover);
                     break;
                 case 5:
-                    removeTodasVersoes(stub, sc);
+                    System.out.print("Chave: ");
+                    String chave5 = sc.nextLine();
+                    int retornoTotal = client.removeAllAndGetVersion(chave5);
+                    System.out.println("Remoção total: versão retornada = " + retornoTotal);
                     break;
                 case 6:
-                    snapshot(stub, sc);
+                    System.out.print("Versão limite (0 para última): ");
+                    int limite = Integer.parseInt(sc.nextLine());
+                    List<Tupla> tuplas = client.snapshotReturn(limite);
+                    for (Tupla t : tuplas) {
+                        System.out.printf("Snapshot: %s = %s (v%d)%n",
+                                t.getChave(), t.getValor(), t.getVersao());
+                    }
                     break;
                 case 0:
                     channel.shutdown();
@@ -58,84 +90,40 @@ public class KVSClient {
         }
     }
 
-    private static void insert(KVSGrpc.KVSBlockingStub stub, Scanner sc) {
-        System.out.print("Chave: ");
-        String chave = sc.nextLine();
-        System.out.print("Valor: ");
-        String valor = sc.nextLine();
-
+    public int insertAndGetVersion(String chave, String valor) {
         ChaveValor request = ChaveValor.newBuilder().setChave(chave).setValor(valor).build();
         Versao response = stub.insere(request);
-
-        System.out.println("Inserido com versão: " + response.getVersao());
+        return response.getVersao();
     }
 
-    private static void consultaVersaoEspecifica(KVSGrpc.KVSBlockingStub stub, Scanner sc) {
-        System.out.print("Chave: ");
-        String chave = sc.nextLine();
-        System.out.print("Versão: ");
-        int versao = Integer.parseInt(sc.nextLine());
-
+    public String queryReturn(String chave, int versao) {
         ChaveVersao request = ChaveVersao.newBuilder().setChave(chave).setVersao(versao).build();
         Tupla resposta = stub.consulta(request);
-
         if (!resposta.getChave().isEmpty() && resposta.getVersao() > 0) {
-            System.out.printf("Consulta: %s = %s (v%d)%n",
-                    resposta.getChave(), resposta.getValor(), resposta.getVersao());
+            return String.format("%s = %s (v%d)", resposta.getChave(), resposta.getValor(), resposta.getVersao());
         } else {
-            System.out.println("❌ Valor não encontrado para essa versão.");
+            return "❌ Valor não encontrado.";
         }
     }
 
-    private static void consultaUltimaVersao(KVSGrpc.KVSBlockingStub stub, Scanner sc) {
-        System.out.print("Chave: ");
-        String chave = sc.nextLine();
-
-        ChaveVersao request = ChaveVersao.newBuilder()
-                .setChave(chave)
-                .setVersao(-1)  // Última versão
-                .build();
-
-        Tupla resposta = stub.consulta(request);
-
-        if (!resposta.getChave().isEmpty() && resposta.getVersao() > 0) {
-            System.out.printf("Consulta: %s = %s (v%d)%n",
-                    resposta.getChave(), resposta.getValor(), resposta.getVersao());
-        } else {
-            System.out.println("❌ Nenhuma versão encontrada.");
-        }
+    public String queryLatestReturn(String chave) {
+        return queryReturn(chave, -1);
     }
 
-    private static void removeVersaoEspecifica(KVSGrpc.KVSBlockingStub stub, Scanner sc) {
-        System.out.print("Chave: ");
-        String chave = sc.nextLine();
-        System.out.print("Versão: ");
-        int versao = Integer.parseInt(sc.nextLine());
-
+    public int removeAndGetVersion(String chave, int versao) {
         ChaveVersao request = ChaveVersao.newBuilder().setChave(chave).setVersao(versao).build();
         Versao resposta = stub.remove(request);
-
-        System.out.println("Remoção: versão retornada = " + resposta.getVersao());
+        return resposta.getVersao();
     }
 
-    private static void removeTodasVersoes(KVSGrpc.KVSBlockingStub stub, Scanner sc) {
-        System.out.print("Chave: ");
-        String chave = sc.nextLine();
-
-        ChaveVersao request = ChaveVersao.newBuilder().setChave(chave).setVersao(-1).build();
-        Versao resposta = stub.remove(request);
-
-        System.out.println("Remoção total: versão retornada = " + resposta.getVersao());
+    public int removeAllAndGetVersion(String chave) {
+        return removeAndGetVersion(chave, -1);
     }
 
-    private static void snapshot(KVSGrpc.KVSBlockingStub stub, Scanner sc) {
-        System.out.print("Versão limite (0 para última): ");
-        int versao = Integer.parseInt(sc.nextLine());
-
-        Versao request = Versao.newBuilder().setVersao(versao).build();
-        stub.snapshot(request).forEachRemaining(tupla -> {
-            System.out.printf("Snapshot: %s = %s (v%d)%n",
-                    tupla.getChave(), tupla.getValor(), tupla.getVersao());
-        });
+    public List<Tupla> snapshotReturn(int versaoLimite) {
+        Versao request = Versao.newBuilder().setVersao(versaoLimite).build();
+        List<Tupla> resultado = new ArrayList<>();
+        stub.snapshot(request).forEachRemaining(resultado::add);
+        return resultado;
     }
 }
