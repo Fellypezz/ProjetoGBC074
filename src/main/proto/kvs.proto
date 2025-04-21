@@ -5,35 +5,23 @@ option java_package = "br.ufu.facom.gbc074.kvs";
 
 package kvs;
 
-// Retorno de consultas
-message Tupla{
-  // a chave passada na consulta
+message Tupla {
   string chave = 1;
-  // valor encontrado
   string valor = 2;
-  // versao do valor para a chave
   int32 versao = 3;
 }
 
-// Parametro de entrada para insercoes
-message ChaveValor{
-  // a chave
+message ChaveValor {
   string chave = 1;
-  // o valor
   string valor = 2;
 }
 
-// Parametro de entrada para consultas
-message ChaveVersao{
-  // a chave pesquisada
+message ChaveVersao {
   string chave = 1;
-  // a versao pesquisada (opcional)
   optional int32 versao = 2;
 }
 
-// Versao para snapshot
-message Versao{
-  // a versao pesquisada
+message Versao {
   int32 versao = 1;
 }
 
