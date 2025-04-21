@@ -22,7 +22,7 @@ public class Main {
         LOG.info("Iniciando servidor gRPC KVS na porta " + porta + "...");
 
         try {
-            KVSService servico = new KVSService(porta);
+            KVSService servico = new KVSService();
 
             Server server = ServerBuilder
                     .forPort(porta)
