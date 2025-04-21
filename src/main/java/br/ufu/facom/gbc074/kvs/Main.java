@@ -6,6 +6,9 @@ import java.io.IOException;
 import java.util.logging.Logger;
 import org.eclipse.paho.client.mqttv3.MqttException;
 
+// IMPORTANTE: esse import precisa existir
+import br.ufu.facom.gbc074.kvs.KVSGrpc;
+
 public class Main {
     private static final Logger LOG = Logger.getLogger("Logger");
 
@@ -16,15 +19,14 @@ public class Main {
         }
 
         int porta = Integer.parseInt(args[0]);
-
         LOG.info("Iniciando servidor gRPC KVS na porta " + porta + "...");
 
         try {
-            KVSService servico = new KVSService(); // pode lançar MqttException
+            KVSService servico = new KVSService(porta);
 
             Server server = ServerBuilder
                     .forPort(porta)
-                    .addService(servico)
+                    .addService((KVSGrpc.KVSImplBase) servico) // 👈 aqui o cast resolve o erro
                     .build();
 
             server.start();

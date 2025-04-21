@@ -14,8 +14,8 @@ public class KVSService extends KVSGrpc.KVSImplBase {
     private final MqttClient mqttClient;
     private final Map<String, TreeMap<Integer, String>> banco = new ConcurrentHashMap<>();
 
-    public KVSService() throws MqttException {
-        mqttClient = new MqttClient(BROKER_URL, MqttClient.generateClientId());
+    public KVSService(int porta) throws MqttException {
+        mqttClient = new MqttClient(BROKER_URL, MqttClient.generateClientId() + "-" + porta);
         mqttClient.setCallback(new MqttCallback() {
             @Override
             public void connectionLost(Throwable cause) {}
@@ -71,12 +71,7 @@ public class KVSService extends KVSGrpc.KVSImplBase {
         return new StreamObserver<>() {
             @Override
             public void onNext(ChaveValor request) {
-                String chave = request.getChave();
-                String valor = request.getValor();
-                int versao = getProximaVersao(chave);
-                banco.computeIfAbsent(chave, k -> new TreeMap<>()).put(versao, valor);
-                publicarAtualizacao(chave, valor, versao);
-                responseObserver.onNext(Versao.newBuilder().setVersao(versao).build());
+                insere(request, responseObserver);
             }
 
             @Override
